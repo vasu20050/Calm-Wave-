@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>AURA CORE v2.5 // NEURAL_LINK</title>
+    
+    <!-- Styling: Vanilla CSS + Tailwind for structure -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;700&display=swap" rel="stylesheet" />
+    
+    <!-- MediaPipe Face Mesh -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <style>
+        :root {
+            --aura-cyan: #00f2ff;
+            --aura-magenta: #ff00ff;
+            --aura-bg: #03080a;
+            --aura-border: rgba(0, 242, 255, 0.4);
+        }
+        
+        body {
+            font-family: 'Fira Code', monospace;
+            background-color: var(--aura-bg);
+            color: var(--aura-cyan);
+            min-height: 100vh;
+            margin: 0;
+            overflow-x: hidden;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--aura-bg); border-left: 1px solid rgba(0,242,255,0.1); }
+        ::-webkit-scrollbar-thumb { background: rgba(0, 242, 255, 0.4); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--aura-cyan); }
+
+        /* HUD Scanlines */
+        body::after {
+            content: " ";
+            display: block;
+            position: fixed;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            z-index: 9999;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+            opacity: 0.3;
+        }
+
+        .hud-border {
+            border: 1px solid var(--aura-border);
+            position: relative;
+        }
+
+        .hud-border::before {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; right: -2px; bottom: -2px;
+            border: 1px solid rgba(0, 242, 255, 0.1);
+            pointer-events: none;
+        }
+
+        .glow-text {
+            text-shadow: 0 0 8px var(--aura-cyan);
+        }
+
+        .glow-border {
+            box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
+        }
+
+        #chat-container::-webkit-scrollbar {
+            width: 4px;
+        }
+        #chat-container::-webkit-scrollbar-thumb {
+            background: var(--aura-cyan);
+            border-radius: 2px;
+        }
+
+        /* Video Mask Styles */
+        #webcam-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4/3;
+            background: #000;
+        }
+        #webcam-video {
+            transform: scaleX(-1);
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        #mask-canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1);
+            pointer-events: none;
+        }
+
+        .status-bar {
+            height: 4px;
+            background: rgba(0, 242, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        .status-fill {
+            height: 100%;
+            background: var(--aura-cyan);
+            box-shadow: 0 0 10px var(--aura-cyan);
+            transition: width 0.5s ease-out;
+        }
+
+        .btn-aura {
+            border: 1px solid var(--aura-cyan);
+            background: rgba(0, 242, 255, 0.05);
+            color: var(--aura-cyan);
+            text-transform: uppercase;
+            font-weight: bold;
+            letter-spacing: 1px;
+            transition: all 0.2s;
+        }
+        .btn-aura:hover {
+            background: var(--aura-cyan);
+            color: #000;
+            box-shadow: 0 0 20px var(--aura-cyan);
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .aura-pulse { animation: blink 2s infinite; }
+
+        .chat-msg-aura {
+            border-left: 2px solid var(--aura-cyan);
+            background: rgba(0, 242, 255, 0.02);
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .chat-msg-user {
+            border-right: 2px solid var(--aura-magenta);
+            background: rgba(255, 0, 255, 0.02);
+            padding: 1rem;
+            margin-bottom: 1rem;
+            text-align: right;
+            color: var(--aura-magenta);
+        }
+
+        /* Markdown Styles for AURA Status Reports */
+        .markdown-body h3 {
+            color: var(--aura-cyan);
+            font-size: 1rem;
+            font-weight: bold;
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px dashed rgba(0, 242, 255, 0.3);
+            padding-bottom: 0.25rem;
+        }
+        .markdown-body p {
+            margin-bottom: 0.75rem;
+        }
+        .markdown-body ul {
+            list-style-type: none;
+            padding-left: 1rem;
+            margin-bottom: 1rem;
+        }
+        .markdown-body ul li {
+            position: relative;
+            margin-bottom: 0.25rem;
+        }
+        .markdown-body ul li::before {
+            content: ">>";
+            position: absolute;
+            left: -1rem;
+            color: var(--aura-cyan);
+            opacity: 0.5;
+            font-size: 0.75rem;
+        }
+        .markdown-body strong {
+            color: var(--aura-magenta);
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body class="p-6 flex flex-col gap-8">
+
+    <!-- Top Row: Neural HUD and Comms -->
+    <div class="h-[650px] flex gap-6 shrink-0 w-full max-w-[1600px] mx-auto">
+        
+        <!-- LEFT HUD: Biometrics -->
+        <div class="w-1/3 flex flex-col gap-6">
+            <!-- Camera & Mask -->
+            <div class="hud-border rounded overflow-hidden glow-border">
+                <div id="webcam-wrapper">
+                    <video id="webcam-video" autoplay playsinline muted></video>
+                    <canvas id="mask-canvas"></canvas>
+                    
+                    <div id="cam-status" class="absolute top-4 left-4 flex items-center gap-2 bg-black/60 px-3 py-1 rounded border border-cyan-500/30">
+                        <span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-red-500">Rec Enabled</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Diagnostics -->
+            <div class="hud-border rounded bg-black/40 p-5 flex-1 flex flex-col gap-6">
+                <div class="border-b border-cyan-500/20 pb-2 flex justify-between items-center">
+                    <h2 class="text-sm font-bold glow-text tracking-widest">// NEURAL_LINK: ACTIVE</h2>
+                    <span class="text-[8px] opacity-40">CALIBRATION_88%</span>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <div class="flex justify-between text-[10px] mb-1 font-bold">
+                            <span>SUBJECT_ID</span>
+                            <span>STUDENT_01</span>
+                        </div>
+                    </div>
+
+                    <div class="border border-magenta-500/30 p-2 text-center bg-magenta-500/5">
+                        <span class="text-[10px] text-magenta-400 font-bold uppercase tracking-widest">Emotion Detected</span>
+                        <div id="biometric-vibe" class="text-lg font-bold text-white mt-1">ANALYZING...</div>
+                    </div>
+
+                    <div class="space-y-3">
+                        <div class="space-y-1">
+                            <div class="flex justify-between text-[10px] font-bold">
+                                <span>COGNITIVE_LOAD</span>
+                                <span id="stat-cog-value">--%</span>
+                            </div>
+                            <div class="status-bar"><div id="stat-cog-bar" class="status-fill" style="width: 0%"></div></div>
+                        </div>
+
+                        <div class="space-y-1">
+                            <div class="flex justify-between text-[10px] font-bold">
+                                <span>HEART_RATE</span>
+                                <span id="stat-heart-value">-- BPM</span>
+                            </div>
+                            <div class="status-bar"><div id="stat-heart-bar" class="status-fill" style="width: 0%; background: var(--aura-magenta); box-shadow: 0 0 10px var(--aura-magenta);"></div></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-auto pt-4 flex flex-col gap-3 border-t border-cyan-500/10">
+                    <div class="flex items-center justify-between p-2 border border-cyan-500/20 rounded bg-cyan-500/5">
+                        <div class="flex flex-col">
+                            <span class="text-[9px] font-bold text-cyan-500/60">NEURAL_LINK_PROTOCOL</span>
+                            <span id="scanner-status-text" class="text-[10px] font-mono text-cyan-500">LINK: ACTIVE</span>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="scanner-toggle-input" checked class="sr-only peer">
+                            <div class="w-11 h-6 bg-cyan-900/40 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-cyan-500 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-500/30"></div>
+                        </label>
+                    </div>
+                    <button id="toggle-cam-btn" class="w-full btn-aura py-2 text-xs">Re-Calibrate Visuals</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT HUD: COMMS -->
+        <div class="flex-1 hud-border rounded glow-border bg-black/40 flex flex-col overflow-hidden">
+            <div class="bg-cyan-500/10 border-b border-cyan-500/30 px-6 py-4 flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <div class="w-3 h-3 border border-cyan-500 flex items-center justify-center">
+                        <div class="w-1 h-1 bg-cyan-500 animate-ping"></div>
+                    </div>
+                    <span class="text-sm font-bold tracking-widest glow-text capitalize">AURA_COMMS_CHANNEL_SECURE</span>
+                </div>
+                <span class="text-[10px] font-mono opacity-40">DATA_LOAD: 2.5K/S</span>
+            </div>
+
+            <!-- Chat Logs -->
+            <div id="chat-container" class="flex-1 overflow-y-auto p-8 space-y-6">
+                <!-- Initial System Message -->
+                <div class="chat-msg-aura">
+                    <span class="text-[10px] font-bold block mb-2 opacity-50 text-cyan-500">[SYSTEM_MSG]</span>
+                    <p class="text-sm leading-relaxed">
+                        Establishing secure handshake... Neural link established. AURA CORE v2.5 initialized. 
+                        Biometric sensors active. Please provide a data input or query to begin emotional diagnostic session.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Terminal Info -->
+            <div id="stat-log" class="px-8 py-2 text-[10px] font-bold border-t border-cyan-500/10 bg-black/20 text-cyan-500/40">
+                >> WAITING_FOR_USER_INPUT...
+            </div>
+
+            <!-- Execution Panel -->
+            <div class="p-4 bg-black/60 border-t border-cyan-500/20">
+                <!-- Image Preview Area (Hidden by default) -->
+                <div id="image-preview-container" class="hidden mb-4 relative inline-block">
+                    <img id="image-preview" src="" class="h-20 rounded border border-cyan-500/50 glow-border" />
+                    <button id="clear-image-btn" class="absolute -top-2 -right-2 bg-black text-red-500 border border-red-500 rounded-full w-5 h-5 flex items-center justify-center text-[10px] hover:bg-red-500 hover:text-white">x</button>
+                </div>
+
+                <div class="flex gap-4">
+                    <input type="file" id="image-upload" accept="image/*" class="hidden" />
+                    
+                    <button id="attach-btn" title="ATTACH_VISUAL_CONTEXT" class="w-12 h-12 flex items-center justify-center border border-cyan-500/20 rounded hover:border-cyan-500 transition-all text-cyan-500 bg-cyan-500/5">
+                        <span class="text-xl">📎</span>
+                    </button>
+                    
+                    <div class="flex-1 border border-cyan-500/20 rounded flex items-center px-4 bg-cyan-500/5 focus-within:border-cyan-500 transition-all">
+                        <span class="text-sm opacity-50 mr-3">$</span>
+                        <input id="message-input" type="text" placeholder="Enter command or message..." 
+                               class="flex-1 bg-transparent border-none outline-none text-white text-sm py-3 font-mono placeholder-cyan-500/20" autofocus />
+                    </div>
+                    <button id="mic-btn" title="VOICE_DICTATION" class="w-12 h-12 flex items-center justify-center border border-cyan-500/20 rounded hover:border-cyan-500 transition-all bg-cyan-500/5">
+                        <span class="text-lg">🎤</span>
+                    </button>
+                    <button id="send-btn" class="btn-aura px-8 h-12 text-sm">Execute</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- AURA CORE: Wellness Directives (Recommendations) -->
+    <div class="flex flex-col gap-6 w-full max-w-[1600px] mx-auto mb-10">
+        <div class="flex items-center justify-between border-b border-cyan-500/20 pb-4">
+            <div>
+                <h3 class="text-2xl font-bold glow-text uppercase tracking-widest">// WELLNESS_DIRECTIVES</h3>
+                <p class="text-xs text-cyan-500/60 mt-2 font-mono">BASED ON CURRENT BIOMETRIC STATE: <span class="text-magenta-400 font-bold glow-text">FOCUSED / ELEVATED HR</span></p>
+            </div>
+            <a class="btn-aura px-4 py-2 text-xs" href="#">ACCESS_ALL_MODULES</a>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Module 1: Meditation -->
+            <div class="hud-border rounded bg-black/40 p-6 flex flex-col group hover:bg-cyan-500/5 transition-all cursor-pointer">
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="w-12 h-12 rounded border border-cyan-500/30 bg-cyan-500/10 text-cyan-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <span class="text-2xl">🧘</span>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-lg uppercase tracking-wider glow-text">Meditation</h4>
+                        <p class="text-[10px] text-cyan-500/50 font-mono">5-MIN // ZEN_CALIBRATION</p>
+                    </div>
+                </div>
+                <p class="text-xs text-cyan-500/70 leading-relaxed mb-6 font-mono">Quick mindfulness protocol to reset cognitive load parameters and stabilize neural pathways.</p>
+                <button class="mt-auto w-full btn-aura py-3 text-xs">INITIATE_MODULE</button>
+            </div>
+
+            <!-- Module 2: Focus Beats -->
+            <div id="module-focus-beats" class="hud-border rounded bg-black/40 p-6 flex flex-col group hover:bg-cyan-500/5 transition-all cursor-pointer">
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="w-12 h-12 rounded border border-cyan-500/30 bg-cyan-500/10 text-cyan-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <span class="text-2xl">🎧</span>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-lg uppercase tracking-wider glow-text">Focus Beats</h4>
+                        <p class="text-[10px] text-cyan-500/50 font-mono">AUDIO // LO-FI_WAVEFORM</p>
+                    </div>
+                </div>
+                <p class="text-xs text-cyan-500/70 leading-relaxed mb-6 font-mono">Curated auditory soundscape designed to mask spatial distractions and elevate concentration metrics.</p>
+                <button id="play-beats-btn" class="mt-auto w-full btn-aura py-3 text-xs">ENGAGE_PLAYBACK</button>
+            </div>
+
+            <!-- Module 3: Breathing -->
+            <div class="hud-border rounded bg-black/40 p-6 flex flex-col group hover:bg-magenta-500/5 transition-all cursor-pointer border-magenta-500/50 relative overflow-hidden">
+                <div class="absolute top-0 right-0 bg-magenta-500 text-black text-[9px] font-bold px-3 py-1 uppercase tracking-widest">
+                    Optimal
+                </div>
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="w-12 h-12 rounded border border-magenta-500/30 bg-magenta-500/10 text-magenta-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <span class="text-2xl">🌬️</span>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-lg uppercase tracking-wider text-magenta-400 glow-text">Breathing</h4>
+                        <p class="text-[10px] text-magenta-400/50 font-mono">4-7-8 // PATTERN_REGULATOR</p>
+                    </div>
+                </div>
+                <p class="text-xs text-magenta-400/70 leading-relaxed mb-6 font-mono">Regulate central nervous system responses with rhythmic, guided respiratory exercises.</p>
+                <button class="mt-auto w-full border border-magenta-500 bg-magenta-500/10 text-magenta-500 hover:bg-magenta-500 hover:text-black py-3 text-xs uppercase font-bold tracking-widest transition-all">BEGIN_GUIDE</button>
+            </div>
+        </div>
+
+        <!-- Mood Trend Data Log -->
+        <div class="hud-border rounded bg-black/40 p-6 mt-2">
+            <div class="flex items-center justify-between mb-8">
+                <h3 class="text-sm font-bold uppercase tracking-widest glow-text">// BIOMETRIC_TREND_LOG</h3>
+                <span class="text-[10px] text-cyan-500/50 font-mono border border-cyan-500/20 px-2 py-1 rounded">T-MINUS 7 CYCLES</span>
+            </div>
+            <div class="flex items-end justify-between h-24 gap-2 px-2">
+                <!-- Trend Bars -->
+                <div class="w-full bg-cyan-500/20 rounded-t border border-cyan-500/30 border-b-0 transition-all hover:bg-cyan-500/40 relative group" style="height: 40%">
+                    <div class="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] bg-black border border-cyan-500 p-1 text-cyan-500">40%</div>
+                </div>
+                <div class="w-full bg-cyan-500/20 rounded-t border border-cyan-500/30 border-b-0 transition-all hover:bg-cyan-500/40 relative group" style="height: 60%">
+                    <div class="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] bg-black border border-cyan-500 p-1 text-cyan-500">60%</div>
+                </div>
+                <div class="w-full bg-cyan-500/20 rounded-t border border-cyan-500/30 border-b-0 transition-all hover:bg-cyan-500/40 relative group" style="height: 45%">
+                    <div class="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] bg-black border border-cyan-500 p-1 text-cyan-500">45%</div>
+                </div>
+                <div class="w-full bg-cyan-500/20 rounded-t border border-cyan-500/30 border-b-0 transition-all hover:bg-cyan-500/40 relative group" style="height: 80%">
+                    <div class="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] bg-black border border-cyan-500 p-1 text-cyan-500">80%</div>
+                </div>
+                <div class="w-full bg-cyan-500/20 rounded-t border border-cyan-500/30 border-b-0 transition-all hover:bg-cyan-500/40 relative group" style="height: 70%">
+                    <div class="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] bg-black border border-cyan-500 p-1 text-cyan-500">70%</div>
+                </div>
+                <div class="w-full bg-cyan-500/20 rounded-t border border-cyan-500/30 border-b-0 transition-all hover:bg-cyan-500/40 relative group" style="height: 85%">
+                    <div class="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] bg-black border border-cyan-500 p-1 text-cyan-500">85%</div>
+                </div>
+                <div class="w-full bg-cyan-500/80 rounded-t border border-cyan-500 border-b-0 glow-border relative group" style="height: 100%">
+                    <div class="absolute -top-7 left-1/2 -translate-x-1/2 text-[10px] bg-cyan-500 text-black font-bold p-1">90%</div>
+                </div>
+            </div>
+            <div class="flex justify-between mt-3 px-2 border-t border-cyan-500/20 pt-2 font-mono">
+                <span class="text-[10px] text-cyan-500/50">CYC-1</span>
+                <span class="text-[10px] text-cyan-500 font-bold">CURRENT</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        const video = document.getElementById('webcam-video');
+        const canvas = document.getElementById('mask-canvas');
+        const canvasCtx = canvas.getContext('2d');
+        const chatBox = document.getElementById('chat-container');
+        const input = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const micBtn = document.getElementById('mic-btn');
+        const vibeDisplay = document.getElementById('biometric-vibe');
+        const cogValue = document.getElementById('stat-cog-value');
+        const cogBar = document.getElementById('stat-cog-bar');
+        const heartValue = document.getElementById('stat-heart-value');
+        const heartBar = document.getElementById('stat-heart-bar');
+        const logDisplay = document.getElementById('stat-log');
+
+        // Dynamic API Base to support local file execution or Live Server
+        const API_BASE = (window.location.protocol === 'file:' || window.location.port === '5500') 
+            ? 'http://localhost:3001' 
+            : '';
+
+        let isStreaming = false;
+        let currentVibe = "Neutral 😐";
+        let capturedImageBase64 = null;
+
+        // Image Attachment Logic
+        const imageUpload = document.getElementById('image-upload');
+        const attachBtn = document.getElementById('attach-btn');
+        const previewContainer = document.getElementById('image-preview-container');
+        const previewImg = document.getElementById('image-preview');
+        const clearImgBtn = document.getElementById('clear-image-btn');
+
+        attachBtn.addEventListener('click', () => imageUpload.click());
+
+        imageUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    capturedImageBase64 = event.target.result;
+                    previewImg.src = capturedImageBase64;
+                    previewContainer.classList.remove('hidden');
+                    logDisplay.textContent = ">> VISUAL_CONTEXT_ATTACHED_TO_BUFFER";
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        clearImgBtn.addEventListener('click', () => {
+            capturedImageBase64 = null;
+            previewImg.src = "";
+            previewContainer.classList.add('hidden');
+            imageUpload.value = ''; // reset file input
+            logDisplay.textContent = ">> VISUAL_CONTEXT_CLEARED";
+        });
+
+        // 1. MEDIA PIPE FACE MESH
+        const faceMesh = new FaceMesh({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }});
+
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        faceMesh.onResults(onFaceMeshResults);
+
+        function onFaceMeshResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (results.multiFaceLandmarks) {
+                for (const landmarks of results.multiFaceLandmarks) {
+                    // Draw Face Wireframe
+                    drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, 
+                        {color: '#00f2ff', lineWidth: 0.5});
+                    drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, {color: '#ff00ff', lineWidth: 1});
+                    drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, {color: '#ff00ff', lineWidth: 1});
+                    drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, {color: '#00f2ff', lineWidth: 1});
+                }
+            }
+            canvasCtx.restore();
+        }
+
+        // 2. CAMERA INITIALIZATION
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 640, height: 480 } 
+                });
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    canvas.width = video.clientWidth;
+                    canvas.height = video.clientHeight;
+                    isStreaming = true;
+                    processFrame();
+                    startAnalysisLoop();
+                };
+            } catch (e) {
+                console.error("Camera access failed:", e);
+                logDisplay.textContent = ">> CAMERA_ACCESS_ERROR: SENSOR_LOCKED";
+            }
+        }
+
+        async function processFrame() {
+            if (!isStreaming) return;
+            await faceMesh.send({image: video});
+            requestAnimationFrame(processFrame);
+        }
+
+        // 3. AI ANALYSIS LOOP (Biometric Feedback)
+        let isAnalyzerRunning = true; // New global to control scanning
+        function startAnalysisLoop() {
+            const scannerToggle = document.getElementById('scanner-toggle-input');
+            const statusText = document.getElementById('scanner-status-text');
+
+            scannerToggle.addEventListener('change', (e) => {
+                isAnalyzerRunning = e.target.checked;
+                statusText.textContent = isAnalyzerRunning ? "LINK: ACTIVE" : "LINK: OFFLINE";
+                statusText.className = isAnalyzerRunning ? "text-[10px] font-mono text-cyan-500" : "text-[10px] font-mono text-red-500/60";
+                
+                if (isAnalyzerRunning) {
+                   logDisplay.textContent = ">> NEURAL_LINK_REESTABLISHED";
+                   performAnalysis(); // trigger immediately on resume
+                } else {
+                   logDisplay.textContent = ">> STANDBY_MODE: SCANNER_IDLE";
+                }
+            });
+
+            async function performAnalysis() {
+                if (!isStreaming || !isAnalyzerRunning) return;
+                
+                const snapCanvas = document.createElement('canvas');
+                snapCanvas.width = 300;
+                snapCanvas.height = 225;
+                const snapCtx = snapCanvas.getContext('2d');
+                snapCtx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
+                const base64 = snapCanvas.toDataURL('image/jpeg', 0.6);
+
+                logDisplay.textContent = ">> SCANNING_NEURAL_PATHWAYS...";
+
+                try {
+                    const res = await fetch(`${API_BASE}/api/analyze`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image: base64 })
+                    });
+                    
+                    if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+                    
+                    const data = await res.json();
+                    
+                    if (data.vibe) {
+                        currentVibe = data.vibe;
+                        vibeDisplay.textContent = data.vibe.toUpperCase();
+                        cogValue.textContent = `${data.focusScore}%`;
+                        cogBar.style.width = `${data.focusScore}%`;
+                        
+                        const hrValue = 70 + Math.floor(Math.random() * 10) + (data.focusScore / 5);
+                        heartValue.textContent = `${Math.floor(hrValue)} BPM`;
+                        heartBar.style.width = `${Math.min(100, (hrValue / 120) * 100)}%`;
+                        
+                        logDisplay.textContent = `>> ANALYSIS_COMPLETED: VIBE_${data.vibe.replace(/ /g, '_').toUpperCase()}`;
+                    } else {
+                        throw new Error("Invalid format from AI");
+                    }
+                    
+                } catch (e) {
+                    console.error("Analysis Error:", e);
+                    vibeDisplay.textContent = "OFFLINE ⚠️";
+                    logDisplay.textContent = `>> AI_COMM_ERROR: ${e.message}`;
+                }
+            }
+
+            // Call immediately, then loop
+            performAnalysis();
+            setInterval(performAnalysis, 25000); // 25s interval to save API Quota
+
+            // Bind Re-Calibrate button to force analysis
+            document.getElementById('toggle-cam-btn').onclick = () => {
+                logDisplay.textContent = ">> FORCING_VISUAL_CALIBRATION...";
+                performAnalysis();
+            };
+        }
+
+        // 4. CHAT LOGIC
+        async function executeCommand() {
+            const text = input.value.trim();
+            if (!text && !capturedImageBase64) return;
+            
+            input.value = '';
+            input.disabled = true;
+            sendBtn.disabled = true;
+            attachBtn.disabled = true;
+            
+            addMsg(text, 'user', capturedImageBase64);
+            logDisplay.textContent = ">> TRANSMITTING_DATA_PACKETS...";
+            
+            // Store and reset base64 before sending to prevent resending on next text chat
+            const imgToSend = capturedImageBase64;
+            clearImgBtn.click(); // clear UI
+
+            try {
+                const res = await fetch(`${API_BASE}/api/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text, vibe: currentVibe, image: imgToSend })
+                });
+                const data = await res.json();
+                
+                addMsg(data.reply, 'aura');
+                speakResponse(data.reply);
+                logDisplay.textContent = ">> RESPONSE_PROCESSED_SUCCESSFULLY";
+            } catch (e) {
+                addMsg("COMMUNICATION_LINK_ERROR: Retrying neural handshake failed. Please check network protocols.", 'aura');
+                logDisplay.textContent = ">> DATA_PACKET_LOSS_CRITICAL";
+            } finally {
+                input.disabled = false;
+                sendBtn.disabled = false;
+                attachBtn.disabled = false;
+                input.focus();
+            }
+        }
+
+        function addMsg(text, sender, imgBase64 = null) {
+            const div = document.createElement('div');
+            const isUser = sender === 'user';
+            div.className = isUser ? 'chat-msg-user' : 'chat-msg-aura';
+            
+            const label = isUser ? '[USER]' : '[AURA]';
+            let mediaHtml = '';
+            if (imgBase64) {
+                mediaHtml = `<img src="${imgBase64}" class="w-48 rounded border border-magenta-500/50 ml-auto mb-2 opacity-80 shine-fx" />`;
+            }
+
+            // Parse markdown for AI responses, keep text plain for user
+            const processedText = isUser ? text : marked.parse(text);
+
+            div.innerHTML = `
+                <span class="text-[10px] font-bold block mb-2 opacity-50 uppercase">${label}</span>
+                ${mediaHtml}
+                <div class="text-sm leading-relaxed ${isUser ? '' : 'markdown-body'}">${processedText}</div>
+            `;
+            
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function speakResponse(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                const voices = window.speechSynthesis.getVoices();
+                utterance.voice = voices.find(v => v.name.includes('Google US English') || v.name.includes('Male')) || voices[0];
+                utterance.pitch = 0.85;
+                utterance.rate = 1.05;
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        // 5. VOICE INPUT
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            
+            recognition.onstart = () => {
+                logDisplay.textContent = ">> LISTENING_TO_PHONETIC_INPUT...";
+                micBtn.classList.add('border-magenta-500', 'bg-magenta-500/10');
+            };
+            recognition.onresult = (e) => {
+                input.value = e.results[0][0].transcript;
+                executeCommand();
+            };
+            recognition.onerror = (e) => {
+                logDisplay.textContent = `>> VOICE_SENSOR_ERROR: ${e.error.toUpperCase()}`;
+                micBtn.classList.remove('border-magenta-500', 'bg-magenta-500/10');
+            };
+            recognition.onend = () => {
+                micBtn.classList.remove('border-magenta-500', 'bg-magenta-500/10');
+                if (logDisplay.textContent.includes('LISTENING')) logDisplay.textContent = ">> WAITING_FOR_USER_INPUT...";
+            };
+            micBtn.addEventListener('click', () => {
+                try {
+                    recognition.start();
+                } catch (e) {
+                    // Ignore if already started
+                    logDisplay.textContent = ">> VOICE_SENSOR_ALREADY_ACTIVE";
+                }
+            });
+        } else {
+            micBtn.addEventListener('click', () => {
+                logDisplay.textContent = ">> VOICE_SENSOR_UNAVAILABLE_IN_THIS_BROWSER";
+            });
+        }
+
+        sendBtn.addEventListener('click', executeCommand);
+        input.addEventListener('keypress', (e) => e.key === 'Enter' && executeCommand());
+
+        // FOCUS BEATS INTEGRATION (Lo-Fi Music Module)
+        document.getElementById('play-beats-btn').addEventListener('click', () => {
+            const moduleEl = document.getElementById('module-focus-beats');
+            moduleEl.classList.remove('p-6', 'hover:bg-cyan-500/5');
+            moduleEl.classList.add('p-0', 'border-cyan-500/80');
+            moduleEl.innerHTML = `
+                <div class="bg-cyan-500 text-black px-2 py-1 text-[10px] font-bold uppercase tracking-widest flex justify-between items-center">
+                    <span>AUDIO_STREAM_ACTIVE</span>
+                    <span class="animate-pulse">▶ LO-FI_WAVEFORM</span>
+                </div>
+                <iframe class="w-full flex-1 min-h-[150px]" src="https://open.spotify.com/embed/playlist/0vvXsWCC9xrXsKd4FyS8kM?utm_source=generator&theme=0" width="100%" height="152" frameBorder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+            `;
+            logDisplay.textContent = ">> NEURAL_RELAXATION_AUDIO_ENGAGED";
+        });
+
+        // Startup
+        window.onload = () => {
+            initCamera();
+            logDisplay.textContent = ">> SYSTEM_INITIALIZATION_READY";
+        };
+    </script>
+</body>
+</html>
